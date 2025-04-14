@@ -4,6 +4,10 @@ const port = 3000;
 const server = express();
 server.use(express.json());
 
+// Aggiungi CORS per permettere richieste dal tuo form HTML
+const cors = require('cors');
+server.use(cors());
+
 // importo il modulo 'dotenv', servirà per caricare le variabili definiti dentro i file .env e .env.local e renderle disponibili tramite process.env
 const dotenv = require('dotenv');
 
@@ -13,54 +17,58 @@ dotenv.config();
 dotenv.config({path: 'env.local', override: true})
 
 const path = require('path');
-const fs = require('fs');7
-const axios = require('axios');
 
 const { Telegraf } = require('telegraf')
 const { message } = require('telegraf/filters')
-
-const uploadDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-};
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.start((ctx) => ctx.reply('Welcome'))
 bot.help((ctx) => ctx.reply('Send me a sticker'))
 bot.on(message('sticker'), (ctx) => ctx.reply('👍'))
-bot.hears('SILEA', (ctx) => ctx.reply('SILEA ESPLODEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE'))
-bot.hears('piedi', (ctx) => ctx.reply('GUSTOSI'))
 
 bot.hears('hi', (ctx) => {
     console.log(ctx.message.chat)
     ctx.reply('Hey there')
 })
 
-bot.on('message', async (ctx, next) => {
-    const photoArray = ctx.message.photo;
-    
-    if (!photoArray) {
-        next();
-    }
-
-    const largestPhoto = photoArray[photoArray.length - 1];
-
-    const file = await ctx.telegram.getFile(largestPhoto.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${bot.token}/${file.file_path}`;
-
-    const fileName = `${Date.now}_${largestPhoto.file_id}.jpg`;
-    const filePath = path.join(uploadDir, fileName)
-
-    // Scarico la foto
-})
-
 bot.launch()
 
-// Chiamata POST richiesta form contatto
-server.post('/contact', (req, res) => {
-    console.log(req.body);
-    bot.telegram.sendMessage(process.env.BOT_CHAT_ID, `Contatto\nNome: ${req.body.name}\nEmail: ${req.body.email}\nTelefono: ${req.body.tel}\n\nMessaggio: ${req.body.text}`)
-    res.send("Ok")
+// NUOVO ENDPOINT: Chiamata POST per il form di registrazione utente
+server.post('/form-data', async (req, res) => {
+    try {
+        console.log('Dati form ricevuti:', req.body);
+        
+        // Formatta il messaggio per Telegram
+        const messaggio = `
+            📝 Contatto Utente 📝
+
+    👤 Nome: ${req.body.nome}
+    👤 Cognome: ${req.body.cognome}
+    📱 Cellulare: ${req.body.cellulare}
+    🏠 Indirizzo: ${req.body.indirizzo}
+    🆔 Codice Fiscale: ${req.body.cf}
+    📧 Email: ${req.body.email}
+    📧 Oggetto: ${req.body.oggetto}
+    📧 Messaggio: ${req.body.messaggio}
+    🏙️ Provincia: ${req.body.provincia}
+    🏙️ Comune: ${req.body.comune_nome}
+`;
+        
+        // Invia il messaggio tramite il bot Telegram
+        await bot.telegram.sendMessage(process.env.BOT_CHAT_ID, messaggio);
+        
+        // Risposta al client
+        res.json({ 
+            success: true, 
+            message: 'Dati inviati con successo al bot Telegram' 
+        });
+    } catch (error) {
+        console.error('Errore nell\'invio dei dati al bot Telegram:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
 });
 
 // ora lo avvio sulla porta indicata da "port"
