@@ -15,9 +15,37 @@
       .form-select:invalid {
         box-shadow: none;
       }
+      #loadingOverlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+      }
+      .spinner-container {
+        background-color: white;
+        padding: 20px;
+        border-radius: 5px;
+        text-align: center;
+      }
     </style>
   </head>
   <body>
+    <!-- Overlay di caricamento -->
+    <div id="loadingOverlay">
+      <div class="spinner-container">
+        <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">Caricamento...</span>
+        </div>
+        <p class="mt-2">Invio in corso...</p>
+      </div>
+    </div>
+
     <div class="container">
       <h2 class="mb-4">Registrazione Utente</h2>
       <form id="userForm" novalidate>
@@ -104,6 +132,30 @@
         </div>
 
         <div class="mb-3">
+          <label for="oggetto" class="form-label">Oggetto</label>
+          <input
+            type="oggetto"
+            class="form-control"
+            id="oggetto"
+            maxlength="40"
+            required
+          />
+          <div class="invalid-feedback">Almeno 5 caratteri.</div>
+        </div>
+
+        <div class="mb-3">
+          <label for="messaggio" class="form-label">Messaggio</label>
+          <input
+            type="messaggio"
+            class="form-control"
+            id="messaggio"
+            maxlength="240"
+            required
+          />
+          <div class="invalid-feedback">Almeno 10 caratteri.</div>
+        </div>
+
+        <div class="mb-3">
           <label for="provincia" class="form-label">Provincia</label>
           <select class="form-select" id="provincia" required>
             <option value="" selected disabled>Seleziona la provincia</option>
@@ -130,9 +182,13 @@
       const submitBtn = document.getElementById("submitBtn");
       const comuneSelect = document.getElementById("comune");
       const comuneContainer = document.getElementById("comuneContainer");
+      const loadingOverlay = document.getElementById("loadingOverlay");
       
       // Variabile globale per memorizzare tutti i comuni
       let tuttiIComuni = [];
+      
+      // URL del tuo server Express
+      const SERVER_URL = "http://localhost:3000/form-data"; // Cambia con l'URL del tuo server se necessario
 
       // un oggetto campi che contengono le regex per validare i campi
       const campi = {
@@ -140,6 +196,8 @@
         cognome: { regex: /^[a-zA-Zàèéìòù' ]{2,30}$/ },
         cellulare: { regex: /^\d{10}$/ },
         indirizzo: { regex: /^[\w\s.,àèéìòù-]{5,50}$/ },
+        oggetto: { regex: /^[a-zA-Zàèéìòù' ]{5,120}$/ },
+        messaggio: { regex: /^[a-zA-Zàèéìòù' ]{10,240}$/ },
         cf: {
           // $/i  ingnore case
           regex: /^[A-Z]{6}[0-9]{2}[A-EHLMPR-T][0-9]{2}[A-Z][0-9]{3}[A-Z]$/i,
@@ -200,13 +258,42 @@
         const validCampi = Object.keys(campi).every((id) => validateCampo(id));
         const validProv = validateProvincia();
         const validComune = validateComune();
-        
-        // Debug per verificare lo stato di validazione
-        console.log("Campi validi:", validCampi);
-        console.log("Provincia valida:", validProv);
-        console.log("Comune valido:", validComune);
-        
         submitBtn.disabled = !(validCampi && validProv && validComune);
+      }
+      
+      // Funzione per mostrare/nascondere l'overlay di caricamento
+      function toggleLoading(show) {
+        loadingOverlay.style.display = show ? "flex" : "none";
+      }
+      
+      // Funzione per inviare i dati del form al server Express
+      async function inviaAlServer(datiForm) {
+        try {
+          toggleLoading(true); // Mostra l'overlay di caricamento
+          
+          const response = await fetch(SERVER_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(datiForm),
+          });
+          
+          toggleLoading(false); // Nascondi l'overlay di caricamento
+          
+          if (!response.ok) {
+            throw new Error(`Errore HTTP: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          console.log('Risposta dal server:', data);
+          
+          return data.success;
+        } catch (error) {
+          toggleLoading(false); // Nascondi l'overlay di caricamento in caso di errore
+          console.error('Errore durante l\'invio al server:', error);
+          return false;
+        }
       }
 
       Object.keys(campi).forEach((id) => {
@@ -221,7 +308,6 @@
         validateProvincia();
         
         const provinciaSelezionata = e.target.value;
-        console.log("Provincia selezionata:", provinciaSelezionata);
         
         // Rimuovi tutte le opzioni esistenti tranne la prima
         while (comuneSelect.options.length > 1) {
@@ -237,14 +323,13 @@
             comune.sigla_provincia === provinciaSelezionata
           );
           
-          console.log("Comuni filtrati:", comuniFiltrati.length);
-          
           if (comuniFiltrati.length > 0) {
             // Popola il select dei comuni
             comuniFiltrati.forEach(comune => {
               const option = document.createElement("option");
               option.value = comune.codice_istat; // Usa codice_istat come valore
               option.textContent = comune.denominazione_ita;
+              option.dataset.nome = comune.denominazione_ita; // Salva il nome per riferimento futuro
               comuneSelect.appendChild(option);
             });
             
@@ -267,20 +352,42 @@
       });
       
       comuneSelect.addEventListener("change", () => {
-        console.log("Comune selezionato:", comuneSelect.value);
         validateComune();
         checkFormValid();
       });
 
-      form.addEventListener("submit", function (e) {
+      form.addEventListener("submit", async function (e) {
         e.preventDefault();
 
+        // Raccogli i dati del form
+        const datiForm = {};
+        
+        // Raccogli i dati dai campi di input
         Object.keys(campi).forEach((id) => {
           const input = document.getElementById(id);
-          input.value = sanitize(input.value);
+          datiForm[id] = sanitize(input.value);
         });
-
-        alert("Form inviato con successo!");
+        
+        // Aggiungi provincia e comune
+        datiForm.provincia = document.getElementById("provincia").value;
+        datiForm.comune_codice = comuneSelect.value;
+        
+        // Ottieni il nome del comune selezionato
+        const comuneOption = comuneSelect.options[comuneSelect.selectedIndex];
+        datiForm.comune_nome = comuneOption ? comuneOption.textContent : "";
+        
+        console.log("Dati form raccolti:", datiForm);
+        
+        // Invia i dati al server
+        const invioRiuscito = await inviaAlServer(datiForm);
+        
+        if (invioRiuscito) {
+          alert("Registrazione completata con successo! I dati sono stati inviati.");
+        } else {
+          alert("C'è stato un problema nell'invio dei dati. Riprova più tardi.");
+        }
+        
+        // Reset del form
         form.reset();
         submitBtn.disabled = true;
         comuneSelect.style.display = "none";
@@ -312,11 +419,6 @@
         .then((comuni) => {
           tuttiIComuni = comuni;
           console.log("Comuni caricati:", tuttiIComuni.length);
-          
-          // Verifica la struttura del primo comune per debug
-          if (tuttiIComuni.length > 0) {
-            console.log("Esempio di comune:", tuttiIComuni[0]);
-          }
           
           // Nascondi inizialmente il select dei comuni
           comuneSelect.style.display = "none";
